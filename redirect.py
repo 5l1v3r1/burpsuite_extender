@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #coding = utf-8
-#2017.8.7  0.1
-
+#2017.8.7  0.1  get all needed information from burpsuite
+#2017.8.8 0.2   repeater the request by httplib
 
 #Burpsuite module
 from burp import IBurpExtender
@@ -14,15 +14,13 @@ from burp import IParameter
 
 #python module
 from urllib import unquote
-import urllib2
+import httplib
+import urlparse
 
 #Extender describre
 print 'Check open redirect issue'
 
-
-
-
-
+    
 class BurpExtender(IBurpExtender,IHttpListener,IRequestInfo,IResponseInfo,IParameter,IHttpRequestResponse):
     
     
@@ -42,7 +40,7 @@ class BurpExtender(IBurpExtender,IHttpListener,IRequestInfo,IResponseInfo,IParam
         
         
     def processHttpMessage(self,toolFlag,messageIsRequest,messageInfo):
-        
+
         #only identify Proxy
         if toolFlag == 4 or toolFlag == 64:
 
@@ -64,13 +62,23 @@ class BurpExtender(IBurpExtender,IHttpListener,IRequestInfo,IResponseInfo,IParam
                     for header in Headers:
                         if header.startswith('Location:'):    
                             LocationDetail = header
+                            break
                         else:
                             LocationDetail =''
-                    #redirect is exist   
 
+                     
+                    #redirect is exist   
+                    
                     analyzeRequest = self._helpers.analyzeRequest(messageInfo.getHttpService(),messageInfo.getRequest())                      
         
-                            
+                    for re_header in analyzeRequest.getHeaders():
+                        if re_header.startswith('Cookie'):    
+                            Cookie = re_header
+                            break
+                        else:
+                            Cookie =''
+                    
+                    
                     #identify all parameters
                     _Parameters = analyzeRequest.getParameters()
 
@@ -89,7 +97,7 @@ class BurpExtender(IBurpExtender,IHttpListener,IRequestInfo,IResponseInfo,IParam
                             #identify if value is in location
                             if unquote(LocationDetail).find(unquote(parameter_value)):
                                 if parameter_key.find('url')!= -1 or parameter_key.find('uri') != -1 or parameter_key.find('next') != -1 and not parameter_value.find('g0da.org'):#maybe we have to find more
-                                    new_parameter = '%2f%2f@g0da.org' # need more payload
+                                    new_parameter = '@g0da.org%23'+parameter_value # need more payload
                                     _Parameter = self._helpers.buildParameter(parameter_key,new_parameter,_Parameter.getType())
                                 
                             newParameters.append(_Parameter)
@@ -102,19 +110,30 @@ class BurpExtender(IBurpExtender,IHttpListener,IRequestInfo,IResponseInfo,IParam
                     
                     #we have newUrl
                     newUrl = newUrl[:-1]
+                    Cookie = str(Cookie)[7:]
                     
-                    try:
-                        identifyResponse = urllib2.urlopen(newUrl)
-                    except urllib2.URLError as e:
-                        if hasattr(e, 'reason'):
-                            1
-                        elif hasattr(e, 'code'):
-                            1                      
-                    #if it is new header
-                    else:
-                        if identifyResponse.geturl().find('g0da.org') and not identifyResponse.geturl().find('error'):
+                    reUrl = urlparse.urlparse(newUrl)
+                    if reUrl.scheme == 'http':
+                        conn = httplib.HTTPConnection(reUrl.netloc)
+                    elif reUrl.scheme == 'https':
+                        conn = httplib.HTTPSConnection(reUrl.netloc)
+                    
+                    url = reUrl.path
+                    if reUrl.query: url += '?' + reUrl.query
+                    if reUrl.fragment: url += '#' + reUrl.fragment
+                    if not url: url = '/'
+                    conn.request(method='GET', url=url , headers={'Cookie': Cookie})
+                    
+                    identifyResponse = conn.getresponse()
+                    
+                    if identifyResponse.status == 302 or identifyResponse.status == 301:
+                        if identifyResponse.getheader('location').find('@g0da.org#'):
                             print "yes"
+                            print reUrl.scheme+"://"+reUrl.netloc+url
                         else:
-                            print "no"
-
+                            1
+                    else:
+                        1
+                    
+                    
 
