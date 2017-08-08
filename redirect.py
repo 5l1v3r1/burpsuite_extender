@@ -2,6 +2,7 @@
 #coding = utf-8
 #2017.8.7  0.1  get all needed information from burpsuite
 #2017.8.8 0.2   repeater the request by httplib
+#2017.8.8 0.2.1 newest
 
 #Burpsuite module
 from burp import IBurpExtender
@@ -10,10 +11,11 @@ from burp import IHttpRequestResponse
 from burp import IRequestInfo
 from burp import IResponseInfo
 from burp import IParameter
+from burp import IScanIssue
 
 
 #python module
-from urllib import unquote
+from urllib import unquote,quote
 import httplib
 import urlparse
 
@@ -21,7 +23,7 @@ import urlparse
 print 'Check open redirect issue'
 
     
-class BurpExtender(IBurpExtender,IHttpListener,IRequestInfo,IResponseInfo,IParameter,IHttpRequestResponse):
+class BurpExtender(IBurpExtender,IHttpListener,IRequestInfo,IResponseInfo,IParameter,IHttpRequestResponse,IScanIssue):
     
     
     def registerExtenderCallbacks(self,callbacks):
@@ -31,6 +33,9 @@ class BurpExtender(IBurpExtender,IHttpListener,IRequestInfo,IResponseInfo,IParam
         
         #helper methods
         self._helpers = callbacks.getHelpers()
+        
+        #IScanIssue methods
+        self._Issue = callbacks.addScanIssue()
         
         #define name
         self._callbacks.setExtensionName("RedirectIssue")
@@ -96,7 +101,19 @@ class BurpExtender(IBurpExtender,IHttpListener,IRequestInfo,IResponseInfo,IParam
 
                             #identify if value is in location
                             if unquote(LocationDetail).find(unquote(parameter_value)):
-                                if parameter_key.find('url')!= -1 or parameter_key.find('uri') != -1 or parameter_key.find('next') != -1 and not parameter_value.find('g0da.org'):#maybe we have to find more
+                                #identify if it is Oauth and the value of state is not encrypted
+                                if parameter_key.find('state') != -1 and parameter_value.find('/') != -1 and parameter_value.find('g0da.org') == -1:
+                                    new_parameter = '%2f%2fg0da.org%23' # need more payload
+                                    _Parameter = self._helpers.buildParameter(parameter_key,new_parameter,_Parameter.getType())
+                                #identify if the redirect is value's parameter
+                                elif (parameter_key.find('uri') != -1 or parameter_key.find('url') != -1) and (parameter_value.find('http') != -1 or parameter_value.find('https') != -1) and (parameter_value.find('url=') != -1 or parameter_value.find('uri=') !=-1) and parameter_value.find('g0da.org') == -1:
+                                    u = urlparse.urlparse(parameter_value)
+                                    q = u.query
+                                    p = q.split('=')[0]
+                                    new_parameter = quote(u.scheme+"://"+u.netloc+u.path+"?"+p+"=//g0da.org").replace('%2F','/')
+                                    _Parameter = self._helpers.buildParameter(parameter_key,new_parameter,_Parameter.getType())
+                                #created in own
+                                elif (parameter_key.find('url')!= -1 or parameter_key.find('uri') != -1 or parameter_key.find('next') != -1) and parameter_value.find('g0da.org') == -1:#maybe we have to find more
                                     new_parameter = '@g0da.org%23'+parameter_value # need more payload
                                     _Parameter = self._helpers.buildParameter(parameter_key,new_parameter,_Parameter.getType())
                                 
@@ -127,13 +144,16 @@ class BurpExtender(IBurpExtender,IHttpListener,IRequestInfo,IResponseInfo,IParam
                     identifyResponse = conn.getresponse()
                     
                     if identifyResponse.status == 302 or identifyResponse.status == 301:
-                        if identifyResponse.getheader('location').find('@g0da.org#'):
-                            print "yes"
-                            print reUrl.scheme+"://"+reUrl.netloc+url
+                        location = identifyResponse.getheader('location')
+                        if location.find('g0da.org') != -1 and location.find('error') == -1:
+                            print "yes\n=>"+reUrl.scheme+"://"+reUrl.netloc+url+"\n=>"+location
+                            def getIssueName():
+                                return "Open Redirect"
+
                         else:
-                            1
+                            print "no\n=>"+reUrl.scheme+"://"+reUrl.netloc+url+"\n=>"+location
                     else:
-                        1
+                        print "no"
                     
                     
 
