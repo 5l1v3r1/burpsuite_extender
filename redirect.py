@@ -34,8 +34,6 @@ class BurpExtender(IBurpExtender,IHttpListener,IRequestInfo,IResponseInfo,IParam
         #helper methods
         self._helpers = callbacks.getHelpers()
         
-        #IScanIssue methods
-        self._Issue = callbacks.addScanIssue()
         
         #define name
         self._callbacks.setExtensionName("RedirectIssue")
